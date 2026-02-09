@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.dubaicookiefinder.ui.components.CustomMarkerFactory
 import com.example.dubaicookiefinder.ui.components.StoreCard
 import com.example.dubaicookiefinder.ui.components.StoreUiModel
 import com.example.dubaicookiefinder.ui.components.getStockStatus
@@ -38,6 +39,7 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.launch
 
@@ -122,36 +124,32 @@ fun MapScreen(
                 .padding(paddingValues)
         ) {
             if (locationPermissions.allPermissionsGranted) {
-                // Google Map
+                // Google Map with Apple-style Silver theme
                 GoogleMap(
                     modifier = Modifier.fillMaxSize(),
                     cameraPositionState = cameraPositionState,
                     properties = MapProperties(
                         isMyLocationEnabled = true,
-                        mapType = MapType.NORMAL
+                        mapType = MapType.NORMAL,
+                        mapStyleOptions = MapStyleOptions.loadRawResourceStyle(
+                            androidx.compose.ui.platform.LocalContext.current,
+                            com.example.dubaicookiefinder.R.raw.map_style_silver
+                        )
                     ),
                     uiSettings = MapUiSettings(
                         zoomControlsEnabled = false,
-                        myLocationButtonEnabled = false,  // 기본 버튼 비활성화
+                        myLocationButtonEnabled = false,
                         compassEnabled = false
                     )
                 ) {
                     uiState.stores.forEach { store ->
                         val position = uiState.storeLocations[store.id] ?: return@forEach
                         
-                        val stockStatus = getStockStatus(store.stockCount)
-                        val markerColor = when (stockStatus) {
-                            com.example.dubaicookiefinder.ui.components.StockStatus.HIGH -> BitmapDescriptorFactory.HUE_GREEN
-                            com.example.dubaicookiefinder.ui.components.StockStatus.MEDIUM -> BitmapDescriptorFactory.HUE_ORANGE
-                            com.example.dubaicookiefinder.ui.components.StockStatus.LOW -> BitmapDescriptorFactory.HUE_RED
-                            com.example.dubaicookiefinder.ui.components.StockStatus.EMPTY -> BitmapDescriptorFactory.HUE_VIOLET
-                        }
-                        
                         Marker(
                             state = MarkerState(position = position),
                             title = store.fullName,
                             snippet = "${store.stockCount}개 재고 | ${store.distance}",
-                            icon = BitmapDescriptorFactory.defaultMarker(markerColor),
+                            icon = CustomMarkerFactory.createMarker(store.stockCount),
                             onClick = {
                                 viewModel.selectStore(store.id)
                                 false
@@ -163,14 +161,14 @@ fun MapScreen(
                 PermissionDeniedPlaceholder()
             }
             
-            // 🔍 "현 지도에서 찾기" 버튼
+            // 🔍 "현 지도에서 찾기" 버튼 (GPS 버튼과 같은 높이)
             AnimatedVisibility(
                 visible = showSearchButton && !uiState.isLoading,
                 enter = fadeIn() + slideInVertically { -it },
                 exit = fadeOut() + slideOutVertically { -it },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 16.dp)
+                    .padding(top = 80.dp)  // GPS 버튼과 같은 높이
             ) {
                 SearchInAreaButton(
                     onClick = {

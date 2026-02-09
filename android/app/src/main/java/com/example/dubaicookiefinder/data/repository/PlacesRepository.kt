@@ -18,7 +18,7 @@ import kotlin.random.Random
  * Google Places API Repository
  * 
  * 실제 주변 편의점/베이커리/카페 데이터를 가져옴
- * 재고 수량은 Mock 데이터로 생성
+ * API 실패 시 Mock 데이터로 Fallback
  */
 class PlacesRepository(context: Context) {
     
@@ -27,16 +27,14 @@ class PlacesRepository(context: Context) {
     
     companion object {
         private const val TAG = "PlacesRepository"
-        private const val SEARCH_RADIUS_METERS = 1000.0 // 1km
+        private const val SEARCH_RADIUS_METERS = 1000.0
         
-        // 검색할 장소 타입
         private val PLACE_TYPES = listOf(
             "convenience_store",
             "bakery",
             "cafe"
         )
         
-        // 가져올 필드
         private val PLACE_FIELDS = listOf(
             Place.Field.ID,
             Place.Field.DISPLAY_NAME,
@@ -47,9 +45,28 @@ class PlacesRepository(context: Context) {
     }
     
     /**
-     * 주변 매장 검색 (suspend 함수)
+     * 주변 매장 검색 (API 실패 시 Mock Fallback)
      */
     suspend fun searchNearbyStores(location: LatLng): List<Store> {
+        return try {
+            val apiResult = searchNearbyFromApi(location)
+            if (apiResult.isNotEmpty()) {
+                Log.d(TAG, "API returned ${apiResult.size} stores")
+                apiResult
+            } else {
+                Log.w(TAG, "API returned empty, using mock data")
+                generateMockStores(location)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "API failed, using mock data", e)
+            generateMockStores(location)
+        }
+    }
+    
+    /**
+     * Google Places API 호출
+     */
+    private suspend fun searchNearbyFromApi(location: LatLng): List<Store> {
         return suspendCancellableCoroutine { continuation ->
             try {
                 val circularBounds = CircularBounds.newInstance(
@@ -71,15 +88,66 @@ class PlacesRepository(context: Context) {
                         continuation.resume(stores)
                     }
                     .addOnFailureListener { exception ->
-                        Log.e(TAG, "Nearby search failed", exception)
-                        // 실패 시 빈 리스트 반환
+                        Log.e(TAG, "Nearby search failed: ${exception.message}")
                         continuation.resume(emptyList())
                     }
             } catch (e: Exception) {
-                Log.e(TAG, "Search error", e)
+                Log.e(TAG, "Search error: ${e.message}")
                 continuation.resume(emptyList())
             }
         }
+    }
+    
+    /**
+     * Mock 데이터 생성 (API Fallback)
+     */
+    private fun generateMockStores(center: LatLng): List<Store> {
+        Log.d(TAG, "Generating mock stores around ${center.latitude}, ${center.longitude}")
+        
+        val brands = listOf(
+            StoreBrand.CU to listOf("강남대로점", "역삼역점", "삼성역점", "선릉역점"),
+            StoreBrand.GS25 to listOf("테헤란로점", "강남역점", "삼성중앙점"),
+            StoreBrand.SEVEN_ELEVEN to listOf("강남점", "역삼점"),
+            StoreBrand.STARBUCKS to listOf("강남R점", "역삼역점", "삼성타워점"),
+            StoreBrand.TWOSOME to listOf("강남역점", "테헤란로점"),
+            StoreBrand.EDIYA to listOf("강남점", "역삼역점"),
+            StoreBrand.PARIS_BAGUETTE to listOf("강남역점", "삼성점"),
+            StoreBrand.MEGA_COFFEE to listOf("강남점", "역삼점")
+        )
+        
+        val stores = mutableListOf<Store>()
+        var index = 0
+        
+        brands.forEach { (brand, branches) ->
+            branches.forEach { branch ->
+                // 중심에서 랜덤 오프셋
+                val latOffset = (random.nextDouble() - 0.5) * 0.015
+                val lngOffset = (random.nextDouble() - 0.5) * 0.015
+                
+                val stockCount = when {
+                    random.nextDouble() < 0.40 -> 0
+                    random.nextDouble() < 0.70 -> random.nextInt(1, 6)
+                    else -> random.nextInt(6, 16)
+                }
+                
+                val updateTimes = listOf("방금 전", "5분 전", "10분 전", "30분 전", "1시간 전")
+                
+                stores.add(
+                    Store(
+                        id = "mock_${index++}",
+                        brand = brand,
+                        branchName = branch,
+                        latitude = center.latitude + latOffset,
+                        longitude = center.longitude + lngOffset,
+                        stockCount = stockCount,
+                        lastUpdated = updateTimes[random.nextInt(updateTimes.size)]
+                    )
+                )
+            }
+        }
+        
+        Log.d(TAG, "Generated ${stores.size} mock stores")
+        return stores.shuffled().take(20)
     }
     
     /**
@@ -90,17 +158,14 @@ class PlacesRepository(context: Context) {
         val lat = placeLocation?.latitude ?: userLocation.latitude
         val lng = placeLocation?.longitude ?: userLocation.longitude
         
-        // 브랜드 추출
         val (brand, branchName) = extractBrandAndBranch(place.displayName ?: "Unknown")
         
-        // 재고 Mock 생성 (40% 품절)
         val stockCount = when {
             random.nextDouble() < 0.40 -> 0
             random.nextDouble() < 0.70 -> random.nextInt(1, 6)
             else -> random.nextInt(6, 16)
         }
         
-        // 업데이트 시간 Mock
         val updateTimes = listOf("방금 전", "5분 전", "10분 전", "30분 전", "1시간 전")
         
         return Store(
@@ -121,68 +186,44 @@ class PlacesRepository(context: Context) {
         val name = displayName.uppercase()
         
         return when {
-            // 편의점
             name.contains("CU") || name.contains("씨유") -> 
                 StoreBrand.CU to displayName.replace(Regex("(?i)CU|씨유"), "").trim()
-            
             name.contains("GS25") || name.contains("지에스") -> 
                 StoreBrand.GS25 to displayName.replace(Regex("(?i)GS25|GS 25|지에스"), "").trim()
-            
             name.contains("세븐일레븐") || name.contains("7-ELEVEN") || name.contains("SEVEN") -> 
                 StoreBrand.SEVEN_ELEVEN to displayName.replace(Regex("(?i)세븐일레븐|7-ELEVEN|SEVEN.?ELEVEN"), "").trim()
-            
             name.contains("이마트24") || name.contains("EMART") -> 
                 StoreBrand.EMART24 to displayName.replace(Regex("(?i)이마트24|EMART.?24"), "").trim()
-            
-            // 베이커리
             name.contains("파리바게뜨") || name.contains("PARIS") -> 
                 StoreBrand.PARIS_BAGUETTE to displayName.replace(Regex("(?i)파리바게뜨|PARIS.?BAGUETTE"), "").trim()
-            
             name.contains("뚜레쥬르") || name.contains("TOUS") -> 
                 StoreBrand.TOUS_LES_JOURS to displayName.replace(Regex("(?i)뚜레쥬르|TOUS.?LES.?JOURS"), "").trim()
-            
-            // 카페 - 주요 프랜차이즈
             name.contains("스타벅스") || name.contains("STARBUCKS") -> 
                 StoreBrand.STARBUCKS to displayName.replace(Regex("(?i)스타벅스|STARBUCKS"), "").trim()
-            
             name.contains("폴바셋") || name.contains("PAUL") && name.contains("BASSETT") -> 
                 StoreBrand.PAUL_BASSETT to displayName.replace(Regex("(?i)폴바셋|PAUL.?BASSETT"), "").trim()
-            
             name.contains("투썸") || name.contains("TWOSOME") || name.contains("TWO SOME") -> 
                 StoreBrand.TWOSOME to displayName.replace(Regex("(?i)투썸플레이스|투썸|TWOSOME|TWO.?SOME"), "").trim()
-            
             name.contains("이디야") || name.contains("EDIYA") -> 
                 StoreBrand.EDIYA to displayName.replace(Regex("(?i)이디야|EDIYA"), "").trim()
-            
             name.contains("메가") || name.contains("MEGA") -> 
                 StoreBrand.MEGA_COFFEE to displayName.replace(Regex("(?i)메가커피|메가MGC커피|MEGA"), "").trim()
-            
             name.contains("컴포즈") || name.contains("COMPOSE") -> 
                 StoreBrand.COMPOSE to displayName.replace(Regex("(?i)컴포즈커피|컴포즈|COMPOSE"), "").trim()
-            
             name.contains("빽다방") || name.contains("PAIK") -> 
                 StoreBrand.PAIKS to displayName.replace(Regex("(?i)빽다방|PAIK"), "").trim()
-            
             name.contains("할리스") || name.contains("HOLLYS") -> 
                 StoreBrand.HOLLYS to displayName.replace(Regex("(?i)할리스|HOLLYS"), "").trim()
-            
             name.contains("엔제리너스") || name.contains("ANGEL") -> 
                 StoreBrand.ANGELINUS to displayName.replace(Regex("(?i)엔제리너스|ANGELINUS|ANGEL.?IN.?US"), "").trim()
-            
-            // 일반 카페/베이커리 키워드
             name.contains("카페") || name.contains("CAFE") || name.contains("커피") || name.contains("COFFEE") -> 
                 StoreBrand.CAFE to displayName
-            
             name.contains("베이커리") || name.contains("BAKERY") || name.contains("빵집") || name.contains("제과") -> 
                 StoreBrand.BAKERY to displayName
-            
             else -> StoreBrand.OTHER to displayName
         }
     }
     
-    /**
-     * 거리 계산 (Haversine)
-     */
     fun calculateDistance(from: LatLng, to: LatLng): Double {
         val earthRadius = 6371000.0
         val lat1 = Math.toRadians(from.latitude)
@@ -198,9 +239,6 @@ class PlacesRepository(context: Context) {
         return earthRadius * c
     }
     
-    /**
-     * 거리 포맷팅
-     */
     fun formatDistance(from: LatLng, to: LatLng): String {
         val distance = calculateDistance(from, to)
         return when {
