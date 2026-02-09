@@ -1,0 +1,30 @@
+# Git ignore file
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/*.iml
+android/.idea/
+android/captures/
+
+# Python
+scripts/.venv/
+scripts/__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+
+# Large files
+*.exe
+*.zip
+*.tar.gz
+*.dmg
+*.pkg
